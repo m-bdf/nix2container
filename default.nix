@@ -334,31 +334,15 @@ let
 
   # Write the references of `path' to a file but do not include `ignore' itself if non-null.
   closureGraph = paths: ignore:
-    let ignoreList =
-      if ignore == null
-      then []
-      else if !(builtins.isList ignore)
-      then [ignore]
-      else ignore;
-    in pkgs.runCommand "closure-graph.json"
-    {
-      exportReferencesGraph.graph = paths;
+    pkgs.runCommand "closure-graph.json" {
       __structuredAttrs = true;
-      PATH = "${pkgs.jq}/bin";
-      ignoreListJson = builtins.toJSON (builtins.map builtins.toString ignoreList);
-      outputChecks.out = {
-        disallowedReferences = ignoreList;
-      };
-      builder = l.toFile "builder"
-      ''
-        . .attrs.sh
-        jq --argjson ignore "$ignoreListJson" \
-          '.graph|map(select(.path as $p | $ignore | index($p) | not))|map(.references|=sort_by(.))|sort_by(.path)' \
-          .attrs.json \
-          > ''${outputs[out]}
-      '';
-    }
-    "";
+      exportReferencesGraph.graph = paths;
+      nativeBuildInputs = [ pkgs.jq ];
+      outputChecks.out.disallowedReferences = l.toList (l.defaultTo [] ignore);
+    } ''
+      filter='select(.path | inside("${toString ignore}") | not)'
+      jq ".graph | map($filter | .references |= sort) | sort_by(.path)" .attrs.json > $out
+    '';
 
   buildImage = {
     name,
