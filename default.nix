@@ -169,34 +169,13 @@ let
       manifest = l.importJSON imageManifest;
 
       buildImageBlob = digest:
-        let
-          blobUrl = "https://${registryUrl}/v2/${imageName}/blobs/${digest}";
-          plainDigest = l.removePrefix "sha256:" digest;
-          insecureFlag = l.optionalString (!tlsVerify) "--insecure";
-        in pkgs.runCommand plainDigest {
+        pkgs.runCommand (l.removePrefix "sha256:" digest) {
           impureEnvVars = l.fetchers.proxyImpureEnvVars;
-          nativeBuildInputs = with pkgs; [ cacert curl jq ];
+          nativeBuildInputs = with pkgs; [ cacert skopeo ];
           outputHash = digest;
         } ''
-          # This initial access is expected to fail as we don't have a token.
-          tokenUrl="$(
-            curl --location ${insecureFlag} --head --silent "${blobUrl}" \
-              --output /dev/null --write-out '%header{www-authenticate}' |
-            sed -E 's/Bearer realm="([^"]+)",(.*)/\1?\2/; s/,/\&/g; s/"//g'
-          )"
-
-          if [ -n "$tokenUrl" ]; then
-            echo "Token URL: $tokenUrl"
-            authFlag="--oauth2-bearer $(
-              curl --location ${insecureFlag} --fail --silent "$tokenUrl" |
-              jq -r .token
-            )"
-          else
-            echo "No token URL found, trying without authentication"
-          fi
-
-          echo "Blob URL: ${blobUrl}"
-          curl --location ${insecureFlag} --fail $authFlag "${blobUrl}" --output $out
+          skopeo layers "${imageUrl}:${imageTag}" ${digest} --tls-verify=${l.boolToString tlsVerify}
+          mv layers-*/$name $out
         '';
 
       # Pull the blobs (archives) for all layers, as well as the one for the image's config JSON.
